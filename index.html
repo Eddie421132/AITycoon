@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 创世代 (AI Tycoon)</title>
+    
+    <!-- 引入 React 和 ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- 引入 Babel 编译器 (用于在浏览器中运行 JSX 代码) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 FontAwesome 图标库 (替代 Lucide 图标) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* 自定义文本选中颜色 */
+        ::selection { background-color: #22c55e; color: white; }
+        body { margin: 0; padding: 0; background-color: #030712; } /* 对应 gray-950 */
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200 font-sans">
+    
+    <!-- 游戏的根节点 -->
+    <div id="root"></div>
+
+    <!-- 游戏主逻辑代码 -->
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // 【安全警告】这里填入你的 API Key 才能聊天画图。不要发给别人看哦！
+        const API_KEY = "AIzaSyBAexJiitCVLCC8_PFYU7TLm0UXlmalTk4";
+
+        // --- 图标组件映射 (把 FontAwesome 封装成类似原先组件的用法) ---
+        const Terminal = ({className}) => <i className={`fas fa-terminal ${className}`}></i>;
+        const Cpu = ({className}) => <i className={`fas fa-microchip ${className}`}></i>;
+        const Zap = ({className}) => <i className={`fas fa-bolt ${className}`}></i>;
+        const ImageIcon = ({className}) => <i className={`fas fa-image ${className}`}></i>;
+        const MessageSquare = ({className}) => <i className={`fas fa-comment-dots ${className}`}></i>;
+        const Activity = ({className}) => <i className={`fas fa-chart-line ${className}`}></i>;
+        const DollarSign = ({className}) => <i className={`fas fa-dollar-sign ${className}`}></i>;
+        const Database = ({className}) => <i className={`fas fa-database ${className}`}></i>;
+        const Power = ({className}) => <i className={`fas fa-power-off ${className}`}></i>;
+        const Skull = ({className}) => <i className={`fas fa-skull-crossbones ${className}`}></i>;
+        const Lock = ({className}) => <i className={`fas fa-lock ${className}`}></i>;
+        const X = ({className}) => <i className={`fas fa-times ${className}`}></i>;
+        const Play = ({className}) => <i className={`fas fa-play ${className}`}></i>;
+        const Globe = ({className}) => <i className={`fas fa-globe ${className}`}></i>;
+        const Shield = ({className}) => <i className={`fas fa-shield-alt ${className}`}></i>;
+        const Route = ({className}) => <i className={`fas fa-network-wired ${className}`}></i>;
+        const BookOpen = ({className}) => <i className={`fas fa-book-open ${className}`}></i>;
+        const CheckCircle = ({className}) => <i className={`fas fa-check-circle ${className}`}></i>;
+        const AlertTriangle = ({className}) => <i className={`fas fa-exclamation-triangle ${className}`}></i>;
+        const LogOut = ({className}) => <i className={`fas fa-sign-out-alt ${className}`}></i>;
+
+        function App() {
+            // Game State
+            const [money, setMoney] = useState(500); 
+            const [gpus, setGpus] = useState(1);
+            const [gpuCost, setGpuCost] = useState(150);
+            const [elecBill, setElecBill] = useState(0);
+            
+            // AI State
+            const [aiLevel, setAiLevel] = useState(1);
+            const [aiExp, setAiExp] = useState(0);
+            const [isTraining, setIsTraining] = useState(false);
+            const [powerOutage, setPowerOutage] = useState(false);
+            
+            // UI State
+            const [logs, setLogs] = useState(["[系统] 公司成立。初始资金 $500。渗透测试模块全面升级！"]);
+            const [activeTab, setActiveTab] = useState('network'); 
+            
+            // Chat & Image State
+            const [chatHistory, setChatHistory] = useState([{ role: 'model', text: '阿巴阿巴...我...我是你的AI...请问有什么吩咐？' }]);
+            const [chatInput, setChatInput] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const chatEndRef = useRef(null);
+            const [imagePrompt, setImagePrompt] = useState('');
+            const [generatedImage, setGeneratedImage] = useState(null);
+            const [isGeneratingImg, setIsGeneratingImg] = useState(false);
+
+            // --- HACKING STATE (Multi-Stage & Push Your Luck) ---
+            const [showTutorial, setShowTutorial] = useState(true);
+            const [activeNode, setActiveNode] = useState(null);
+            
+            // hackPhase: 'idle', 'config', 'ddos', 'bruteforce', 'connecting', 'downloading', 'result'
+            const [hackPhase, setHackPhase] = useState('idle'); 
+            const [remainingDefenses, setRemainingDefenses] = useState([]); 
+            const [moduleProgress, setModuleProgress] = useState(0); 
+            
+            const [terminalLines, setTerminalLines] = useState([]);
+            const terminalEndRef = useRef(null);
+            
+            const [hackConfig, setHackConfig] = useState({ rhost: '', lhost: '192.168.1.104', payload: '', exploitFile: 'payload_v4.rb' });
+            const [stolenMoney, setStolenMoney] = useState(0);
+            const [traceProgress, setTraceProgress] = useState(0);
+            const [hackCooldowns, setHackCooldowns] = useState({});
+
+            // --- NETWORK NODES ---
+            const nodes = [
+                { id: 1, name: "竞争对手服务器", x: 20, y: 30, riskMulti: 1.0, rewardBase: 10, reqLvl: 1, defense: 'none', desc: "毫无防备。直接使用 exploit 攻击即可。" },
+                { id: 2, name: "外包数据中心", x: 50, y: 20, riskMulti: 2.0, rewardBase: 30, reqLvl: 2, defense: 'firewall', desc: "有防火墙保护。需要先使用 brute_force 爆破密码。" },
+                { id: 3, name: "跨国企业分部", x: 80, y: 40, riskMulti: 3.5, rewardBase: 60, reqLvl: 3, defense: 'proxy', desc: "隐藏在代理后。需要先用 synflood DDoS瘫痪代理。" },
+                { id: 4, name: "加密货币交易所", x: 30, y: 70, riskMulti: 5.0, rewardBase: 150, reqLvl: 4, defense: 'both', desc: "双重防御。先 DDoS代理，再 爆破防火墙，最后 攻击主服务器。" },
+                { id: 5, name: "联邦核心金库", x: 70, y: 80, riskMulti: 8.0, rewardBase: 500, reqLvl: 5, defense: 'both', desc: "终极目标！安保极严，追踪极快，不要太贪心！" },
+            ];
+
+            // --- GAME LOOP ---
+            useEffect(() => {
+                const tick = setInterval(() => {
+                if (powerOutage) return;
+                let elecCost = 0;
+                let expGain = 0;
+
+                if (isTraining) {
+                    elecCost = gpus * 0.3; 
+                    expGain = gpus * 2; 
+                }
+
+                if (elecCost > 0) {
+                    setElecBill(prev => {
+                    const newBill = prev + elecCost;
+                    if (newBill >= 500) {
+                        setPowerOutage(true);
+                        setIsTraining(false);
+                        addLog("[警告] 欠费超过 $500！已被断电！", "error");
+                    }
+                    return newBill;
+                    });
+                }
+
+                if (isTraining) {
+                    setAiExp(prev => {
+                    const nextVal = prev + expGain;
+                    const expNeeded = aiLevel * 100;
+                    if (nextVal >= expNeeded) {
+                        levelUp(aiLevel + 1);
+                        return nextVal - expNeeded;
+                    }
+                    return nextVal;
+                    });
+                }
+                }, 1000);
+                return () => clearInterval(tick);
+            }, [gpus, isTraining, powerOutage, aiLevel]);
+
+            useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory, isTyping]);
+            useEffect(() => { terminalEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [terminalLines]);
+
+            const levelUp = (newLevel) => {
+                setAiLevel(newLevel);
+                addLog(`[升级] 你的模型进化到了 Level ${newLevel}!`);
+                if (newLevel === 4) addLog(`[解锁] 图像生成能力已解锁！`, "success");
+                if (newLevel === 5) addLog(`[突破] 核心架构升级为完全体！`, "success");
+            };
+
+            const addLog = (msg, type = "info") => {
+                setLogs(prev => [...prev.slice(-15), { msg, type, time: new Date().toLocaleTimeString() }]);
+            };
+
+            const pushTerminal = (msg, color = 'text-green-400') => {
+                setTerminalLines(prev => [...prev, { msg, color }]);
+            };
+
+            // --- ACTIONS ---
+            const buyGpu = () => {
+                if (money >= gpuCost) {
+                setMoney(prev => prev - gpuCost);
+                setGpus(prev => prev + 1);
+                setGpuCost(prev => Math.floor(prev * 1.4)); 
+                addLog(`[采购] 购买 GPU。总算力: ${gpus + 1}`);
+                } else {
+                addLog(`[失败] 资金不足。`, "error");
+                }
+            };
+
+            const payBill = () => {
+                if (money >= elecBill) {
+                setMoney(prev => prev - elecBill);
+                setElecBill(0);
+                setPowerOutage(false);
+                addLog(`[财务] 成功缴纳电费。`);
+                } else if (money > 0 && elecBill > 0) {
+                setElecBill(prev => prev - money);
+                setMoney(0);
+                addLog(`[财务] 缴纳了部分电费。`, "warning");
+                }
+            };
+
+            const toggleTraining = () => {
+                if (powerOutage) return;
+                setIsTraining(!isTraining);
+                addLog(isTraining ? `[系统] 停止训练。` : `[系统] 启动训练，耗电增加。`);
+            };
+
+            // --- HACKING CORE LOGIC ---
+            const logCurrentRequirement = (req) => {
+                if (req === 'proxy') {
+                    pushTerminal(`[!] 目标隐藏在代理服务器之后。`, 'text-yellow-400 font-bold');
+                    pushTerminal(`[*] 指令: 需要手动选择 synflood 模块发起 DDoS 攻击使其过载。`, 'text-yellow-400');
+                } else if (req === 'firewall') {
+                    pushTerminal(`[!] 目标主节点被硬件防火墙锁定。`, 'text-orange-400 font-bold');
+                    pushTerminal(`[*] 指令: 需要手动选择 brute_force 模块暴力破解其 Root 密码。`, 'text-orange-400');
+                } else {
+                    pushTerminal(`[+] 前置防御已全部清除。主服务器暴露。`, 'text-blue-400 font-bold');
+                    pushTerminal(`[*] 指令: 请选择 neural_override 模块建立后门开始窃取。`, 'text-blue-400');
+                }
+            };
+
+            const startHack = (node) => {
+                if (powerOutage) return addLog("停电中！", "error");
+                if (aiLevel < node.reqLvl) return addLog(`AI等级不足，需要Lv.${node.reqLvl}`, "error");
+                if (hackCooldowns[node.id]) return addLog(`节点警觉中，冷却中...`, "warning");
+
+                setActiveNode(node);
+                setTerminalLines([]);
+                setStolenMoney(0);
+                setTraceProgress(0);
+                setModuleProgress(0);
+                
+                const randomIp = `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
+                setHackConfig(prev => ({ ...prev, rhost: randomIp, payload: '' }));
+                
+                let defs = [];
+                if (node.defense === 'proxy') defs = ['proxy'];
+                else if (node.defense === 'firewall') defs = ['firewall'];
+                else if (node.defense === 'both') defs = ['proxy', 'firewall'];
+                
+                setRemainingDefenses(defs);
+                setHackPhase('config');
+                
+                pushTerminal(`[*] 锁定目标节点: ${node.name}`);
+                logCurrentRequirement(defs[0]);
+            };
+
+            const executeModule = () => {
+                if (!hackConfig.payload) {
+                    pushTerminal(`[-] 错误: 请先在下拉菜单中选择一个 PAYLOAD 模块！`, 'text-red-500');
+                    return;
+                }
+
+                const currentReq = remainingDefenses[0];
+
+                if (currentReq === 'proxy') {
+                    if (hackConfig.payload !== 'auxiliary/dos/tcp/synflood') {
+                        pushTerminal(`[-] 模块选择错误: 遭遇代理拦截！需要选择辅助 DDoS 模块 (synflood) 瘫痪代理。`, 'text-red-500 font-bold');
+                        return;
+                    }
+                    setModuleProgress(0);
+                    setHackPhase('ddos');
+                    pushTerminal(`msf5 > use ${hackConfig.payload}`, 'text-yellow-400');
+                    pushTerminal(`[*] 启动洪水攻击发生器...目标: ${hackConfig.rhost}`);
+                } 
+                else if (currentReq === 'firewall') {
+                    if (hackConfig.payload !== 'auxiliary/scanner/ssh/brute_force') {
+                        pushTerminal(`[-] 模块选择错误: 遭遇防火墙拦截！需要选择暴力破解模块 (brute_force) 猜解密码。`, 'text-red-500 font-bold');
+                        return;
+                    }
+                    setModuleProgress(0);
+                    setHackPhase('bruteforce');
+                    pushTerminal(`msf5 > use ${hackConfig.payload}`, 'text-yellow-400');
+                    pushTerminal(`[*] 加载顶级密码字典库...目标: ${hackConfig.rhost}:22`);
+                } 
+                else {
+                    if (hackConfig.payload !== 'exploit/ai/neural_override') {
+                        pushTerminal(`[-] 模块选择错误: 道路已扫清，现在必须使用漏洞利用模块 (neural_override) 建立连接！`, 'text-red-500 font-bold');
+                        return;
+                    }
+                    executeMainExploit();
+                }
+            };
+
+            // Pre-attack Animations
+            useEffect(() => {
+                let interval;
+                if (hackPhase === 'ddos') {
+                    interval = setInterval(() => {
+                        setModuleProgress(p => {
+                            const next = p + Math.random() * 8 + 2;
+                            if (Math.random() > 0.4) {
+                                pushTerminal(`[*] TCP SYN Flooding -> ${hackConfig.rhost}:${Math.floor(Math.random()*65535)}  [84 bytes]`, 'text-gray-500');
+                            }
+                            if (next >= 100) {
+                                clearInterval(interval);
+                                pushTerminal(`[+] 代理服务器负载达到极限，核心服务已宕机！网络真实拓扑暴露！`, 'text-green-400 font-bold');
+                                setTimeout(() => {
+                                    const nextDefs = remainingDefenses.slice(1);
+                                    setRemainingDefenses(nextDefs);
+                                    setHackConfig(prev => ({...prev, payload: ''}));
+                                    setHackPhase('config');
+                                    logCurrentRequirement(nextDefs[0]);
+                                }, 2000);
+                                return 100;
+                            }
+                            return next;
+                        });
+                    }, 150);
+                } else if (hackPhase === 'bruteforce') {
+                    const commonPasswords = ['123456', 'password', 'admin', 'root', 'qwerty', 'iloveyou', 'test', 'system'];
+                    interval = setInterval(() => {
+                        setModuleProgress(p => {
+                            const next = p + Math.random() * 5 + 1;
+                            if (Math.random() > 0.3) {
+                                const fakePass = `${commonPasswords[Math.floor(Math.random()*commonPasswords.length)]}${Math.floor(Math.random()*999)}`;
+                                pushTerminal(`[-] 尝试 SSH 登录 root:${fakePass} ... 认证失败`, 'text-yellow-600');
+                            }
+                            if (next >= 100) {
+                                clearInterval(interval);
+                                pushTerminal(`[+] 暴力破解成功！提取到管理员凭证: root:admin_pwned_99`, 'text-green-400 font-bold');
+                                setTimeout(() => {
+                                    const nextDefs = remainingDefenses.slice(1);
+                                    setRemainingDefenses(nextDefs);
+                                    setHackConfig(prev => ({...prev, payload: ''}));
+                                    setHackPhase('config');
+                                    logCurrentRequirement(nextDefs[0]);
+                                }, 2500);
+                                return 100;
+                            }
+                            return next;
+                        });
+                    }, 200);
+                }
+                return () => clearInterval(interval);
+            }, [hackPhase, remainingDefenses]);
+
+            const executeMainExploit = () => {
+                setHackPhase('connecting');
+                pushTerminal(`msf5 > use exploit/${hackConfig.payload}`, 'text-yellow-400');
+                setTimeout(() => pushTerminal(`[*] RHOST => ${hackConfig.rhost}`), 300);
+                setTimeout(() => pushTerminal(`[*] LHOST => ${hackConfig.lhost}`), 600);
+                setTimeout(() => pushTerminal(`[*] 加载独立脚本 => /payloads/${hackConfig.exploitFile}`), 900);
+                setTimeout(() => pushTerminal(`msf5 exploit > exploit`, 'text-yellow-400'), 1400);
+                setTimeout(() => pushTerminal(`[*] 正在向目标发送 payload...`), 2000);
+                
+                setTimeout(() => {
+                    pushTerminal(`[+] Meterpreter session 1 opened!`, 'text-green-400 font-bold');
+                    pushTerminal(`[!] 警告：触发核心金库安全警报，追踪程序已启动！`, 'text-red-500 animate-pulse font-bold');
+                    pushTerminal(`[*] 建立隐蔽数据隧道，开始窃取资金...`, 'text-blue-400');
+                    setHackPhase('downloading');
+                }, 3500);
+            };
+
+            useEffect(() => {
+                let interval;
+                if (hackPhase === 'downloading' && activeNode) {
+                    interval = setInterval(() => {
+                        const gain = Math.floor(activeNode.rewardBase * (0.8 + Math.random() * 0.4));
+                        setStolenMoney(prev => prev + gain);
+                        
+                        if (Math.random() > 0.5) {
+                            pushTerminal(`[+] 截获加密封包，解析出资金 $${gain}`, 'text-green-400');
+                        }
+
+                        setTraceProgress(prev => {
+                            const traceSpike = (Math.random() * 3 + 1) * activeNode.riskMulti;
+                            const nextProgress = prev + traceSpike;
+                            if (nextProgress >= 100) {
+                                clearInterval(interval);
+                                handleBust();
+                            }
+                            return nextProgress;
+                        });
+                    }, 1000); 
+                }
+                return () => clearInterval(interval);
+            }, [hackPhase, activeNode]);
+
+            const abortAndCashOut = () => {
+                setHackPhase('result');
+                pushTerminal(`[*] 正在擦除日志并主动切断连接...`, 'text-yellow-400');
+                setTimeout(() => {
+                    setMoney(prev => prev + stolenMoney);
+                    pushTerminal(`[+] 安全撤离！本次行动共获利: $${stolenMoney}`, 'text-green-400 font-bold');
+                    addLog(`成功窃取 ${activeNode.name}，获利 $${stolenMoney}`, "success");
+                    setNodeCooldown(activeNode.id);
+                }, 1000);
+            };
+
+            const handleBust = () => {
+                setHackPhase('result');
+                pushTerminal(`[-] FATAL: The connection was reset by peer.`, 'text-red-500 font-bold');
+                pushTerminal(`[!] 安全局已锁定您的物理位置！被当场抓获！`, 'text-red-500 font-bold animate-pulse');
+                
+                const penalty = Math.floor(activeNode.rewardBase * 10 * activeNode.riskMulti); 
+                setMoney(prev => Math.max(0, prev - penalty));
+                
+                pushTerminal(`[-] 账户被查封，遭到反制罚款: -$${penalty}`, 'text-red-500');
+                addLog(`入侵 ${activeNode.name} 被抓捕！被罚款 $${penalty}`, "error");
+                setNodeCooldown(activeNode.id);
+            };
+
+            const setNodeCooldown = (id) => {
+                setHackCooldowns(prev => ({ ...prev, [id]: true }));
+                setTimeout(() => {
+                    setHackCooldowns(prev => ({ ...prev, [id]: false }));
+                }, 20000);
+            };
+
+            const closeHackModal = () => {
+                setActiveNode(null);
+                setHackPhase('idle');
+            };
+
+            // --- AI API ---
+            const handleChatSubmit = async (e) => {
+                e.preventDefault();
+                if (!chatInput.trim() || isTyping || powerOutage) return;
+                setElecBill(prev => prev + 0.1); 
+                const userMsg = chatInput;
+                setChatInput('');
+                setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
+                setIsTyping(true);
+                const baseDelay = Math.max(500, 3000 - (gpus * 200)); 
+                
+                setTimeout(async () => {
+                try {
+                    let systemPrompt = aiLevel <= 2 ? "你现在是一个初创公司刚开发出来的非常笨的早期AI模型。你经常犯错，说话结巴，只能用简短、困惑的语气回答。必须用中文。" 
+                                    : aiLevel <= 4 ? "你是一个由玩家开发的普通水平的AI助手。你可以正常用中文回答问题。" 
+                                    : "你是一个极其聪明、无所不知的高级AI模型，代号Gemini 3 Pro。请提供专业极具洞察力的中文回答。";
+                    const payload = { contents: [{ parts: [{ text: userMsg }] }], systemInstruction: { parts: [{ text: systemPrompt }] } };
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    const data = await response.json();
+                    setChatHistory(prev => [...prev, { role: 'model', text: data.candidates?.[0]?.content?.parts?.[0]?.text || "出错了..." }]);
+                } catch (error) {
+                    setChatHistory(prev => [...prev, { role: 'model', text: "网络异常..." }]);
+                } finally { setIsTyping(false); }
+                }, baseDelay);
+            };
+
+            const handleImageGenerate = async (e) => {
+                e.preventDefault();
+                if (!imagePrompt.trim() || isGeneratingImg || powerOutage) return;
+                setElecBill(prev => prev + 0.5); 
+                setIsGeneratingImg(true);
+                try {
+                const payload = { contents: [{ parts: [{ text: imagePrompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const data = await response.json();
+                const base64 = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                if (base64) setGeneratedImage(`data:image/png;base64,${base64}`);
+                } catch (error) { addLog(`图像生成失败`, "error"); } 
+                finally { setIsGeneratingImg(false); }
+            };
+
+            const ProgressBar = ({ current, max, color }) => (
+                <div className="w-full bg-gray-700 rounded-full h-2.5 mt-1 overflow-hidden">
+                <div className={`h-full rounded-full ${color} transition-all duration-300`} style={{ width: `${Math.min(100, (current / max) * 100)}%` }}></div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen p-2 md:p-4 flex flex-col md:flex-row gap-4 selection:bg-green-500 selection:text-white relative">
+                
+                {/* --- HACKER MODAL --- */}
+                {hackPhase !== 'idle' && (
+                    <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-gray-900 border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.15)] rounded-lg w-full max-w-4xl overflow-hidden flex flex-col">
+                        
+                        {/* Header */}
+                        <div className="bg-gray-800 border-b border-gray-700 p-3 flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-green-400 font-mono text-sm font-bold">
+                            <Terminal className="w-4 h-4 mr-1" /> MSF_CONSOLE [行动代号: {activeNode?.name}]
+                        </div>
+                        <button onClick={closeHackModal} disabled={hackPhase === 'downloading' || hackPhase === 'ddos' || hackPhase === 'bruteforce'} className="text-gray-400 hover:text-white disabled:opacity-20">
+                            <X className="w-5 h-5" />
+                        </button>
+                        </div>
+
+                        <div className="flex flex-col md:flex-row h-[550px]">
+                        {/* Left Side: Terminal */}
+                        <div className="flex-1 bg-black p-4 font-mono text-xs md:text-sm overflow-y-auto flex flex-col gap-1 border-r border-gray-800 relative">
+                            <div className="text-gray-500 mb-4 opacity-70">
+                            <pre>
+{`
+ __ __ _________________ 
+|  |  |   |   |   | __  |
+|  |  | | | | | | | __ -|
+|_____|_|_|_|___|_|_____|
+=[ metasploit v6.0.0-dev ]
+`}
+                            </pre>
+                            </div>
+                            {terminalLines.map((log, i) => (
+                            <div key={i} className={log.color}>{log.msg}</div>
+                            ))}
+                            {hackPhase === 'connecting' && <div className="text-yellow-500 animate-pulse mt-2">[*] 正在建立连接，请稍候...</div>}
+                            <div ref={terminalEndRef} />
+                        </div>
+
+                        {/* Right Side: Logic Panels */}
+                        <div className="w-full md:w-80 bg-gray-900 p-4 flex flex-col">
+                            
+                            {/* 1. CONFIG PHASE */}
+                            {hackPhase === 'config' && (
+                                <div className="flex flex-col h-full gap-4">
+                                    <h3 className="text-sm font-bold text-gray-400 border-b border-gray-700 pb-2">手动载荷配置面板</h3>
+                                    
+                                    <div className="flex gap-2 mb-2">
+                                        <div className={`flex-1 text-center text-xs py-1 rounded border ${remainingDefenses.includes('proxy') ? 'bg-yellow-900/50 border-yellow-500 text-yellow-400' : 'bg-green-900/20 border-green-800 text-green-700 opacity-50'}`}>
+                                            代理拦截
+                                        </div>
+                                        <div className={`flex-1 text-center text-xs py-1 rounded border ${remainingDefenses.includes('firewall') ? 'bg-orange-900/50 border-orange-500 text-orange-400' : 'bg-green-900/20 border-green-800 text-green-700 opacity-50'}`}>
+                                            防火墙拦截
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+                                        <div>
+                                            <label className="text-xs text-gray-500 block mb-1">RHOST (目标IP)</label>
+                                            <input type="text" value={hackConfig.rhost} readOnly className="w-full bg-gray-800 border border-gray-700 text-green-400 text-xs p-2 rounded outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-500 block mb-1">PAYLOAD 模块选择 (关键)</label>
+                                            <select 
+                                                value={hackConfig.payload} 
+                                                onChange={e=>setHackConfig({...hackConfig, payload: e.target.value})} 
+                                                className="w-full bg-gray-800 border border-gray-500 text-white text-xs p-2 rounded focus:border-green-500 outline-none shadow-inner"
+                                            >
+                                                <option value="" disabled>--- 请选择模块 ---</option>
+                                                <option value="auxiliary/dos/tcp/synflood">📦 auxiliary/dos/tcp/synflood (DDoS瘫痪代理)</option>
+                                                <option value="auxiliary/scanner/ssh/brute_force">🔑 auxiliary/scanner/ssh/brute_force (爆破防火墙密码)</option>
+                                                <option value="exploit/ai/neural_override">⚡ exploit/ai/neural_override (主系统提权利用)</option>
+                                            </select>
+                                            <p className="text-[10px] text-gray-500 mt-1">选错模块将导致攻击无效并可能触发警报。</p>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-500 block mb-1">独立注入文件</label>
+                                            <input type="text" value={hackConfig.exploitFile} onChange={e=>setHackConfig({...hackConfig, exploitFile: e.target.value})} className="w-full bg-black border border-gray-600 text-yellow-400 text-xs p-2 rounded focus:border-yellow-500 outline-none font-mono" />
+                                        </div>
+                                    </div>
+                                    
+                                    <button onClick={executeModule} className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded shadow-[0_0_10px_rgba(37,99,235,0.5)] flex items-center justify-center gap-2 transition hover:scale-[1.02]">
+                                        <Play className="w-4 h-4 mr-1" /> 运行当前模块 (RUN)
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 2. DDOS / BRUTE FORCE */}
+                            {(hackPhase === 'ddos' || hackPhase === 'bruteforce') && (
+                                <div className="flex flex-col h-full gap-4">
+                                    <h3 className="text-sm font-bold text-gray-400 border-b border-gray-700 pb-2 flex items-center gap-2">
+                                        <Activity className="w-4 h-4 fa-spin text-blue-400 mr-1"/>
+                                        {hackPhase === 'ddos' ? '执行 DDoS 洪水攻击' : '执行 字典暴力破解'}
+                                    </h3>
+                                    
+                                    <div className="flex-1 flex flex-col justify-center gap-6">
+                                        <div className="bg-gray-800/50 p-5 rounded-xl border border-gray-700">
+                                            <div className="flex justify-between text-xs mb-3 text-yellow-400 font-bold">
+                                                <span>{hackPhase === 'ddos' ? '代理节点负载压力' : '密码字典穷举进度'}</span>
+                                                <span>{Math.floor(moduleProgress)}%</span>
+                                            </div>
+                                            <div className="w-full bg-black rounded-full h-5 border border-gray-600 overflow-hidden relative">
+                                                <div className={`h-full ${hackPhase === 'ddos' ? 'bg-orange-500' : 'bg-blue-500'} transition-all duration-100 ease-linear`} style={{ width: `${moduleProgress}%` }}></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="text-center text-xs text-gray-500 animate-pulse">
+                                        请等待攻击模块执行完毕，切勿中断...
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3. DOWNLOADING / RESULT */}
+                            {(hackPhase === 'downloading' || hackPhase === 'result' || hackPhase === 'connecting') && hackPhase !== 'config' && hackPhase !== 'ddos' && hackPhase !== 'bruteforce' && (
+                                <div className="flex flex-col h-full gap-4">
+                                    <h3 className="text-sm font-bold text-gray-400 border-b border-gray-700 pb-2 flex justify-between">
+                                        主系统提权与提现 
+                                        {hackPhase === 'downloading' && <span className="text-green-400 animate-pulse">● 活跃</span>}
+                                    </h3>
+                                    
+                                    <div className="flex-1 flex flex-col justify-center gap-6">
+                                        <div className="text-center bg-gray-800/50 p-4 rounded-xl border border-gray-700 relative overflow-hidden">
+                                            <div className="relative z-10">
+                                                <div className="text-xs text-gray-400 mb-1">暂存赃款 (切断连接后到账)</div>
+                                                <div className="text-4xl font-mono font-bold text-green-400 drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]">${stolenMoney}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 relative overflow-hidden">
+                                            {traceProgress >= 75 && hackPhase === 'downloading' && <div className="absolute inset-0 bg-red-500/20 animate-pulse pointer-events-none"></div>}
+                                            <div className="flex justify-between text-xs mb-2">
+                                                <span className="text-red-400 font-bold flex items-center gap-1"><Shield className="w-3 h-3 mr-1"/> 安全局反向追踪</span>
+                                                <span className="text-red-400 font-mono">{Math.min(100, Math.floor(traceProgress))}%</span>
+                                            </div>
+                                            <div className="w-full bg-black rounded-full h-4 border border-gray-600 overflow-hidden">
+                                                <div className="h-full bg-red-600 transition-all duration-300 ease-linear" style={{ width: `${Math.min(100, traceProgress)}%` }}></div>
+                                            </div>
+                                            <div className="text-center text-[10px] text-gray-500 mt-2">进度达 100% 将人财两空！见好就收！</div>
+                                        </div>
+                                    </div>
+
+                                    {hackPhase === 'downloading' && (
+                                        <button onClick={abortAndCashOut} className="w-full py-5 bg-yellow-600 hover:bg-yellow-500 text-white font-black text-base rounded shadow-[0_0_20px_rgba(202,138,4,0.8)] flex items-center justify-center gap-2 transition hover:scale-105 active:scale-95 animate-bounce">
+                                            <LogOut className="w-6 h-6 mr-1" /> 提现并销毁痕迹！
+                                        </button>
+                                    )}
+                                    {hackPhase === 'result' && (
+                                        <button onClick={closeHackModal} className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold text-sm rounded transition">
+                                            关闭渗透终端
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        </div>
+                    </div>
+                    </div>
+                )}
+
+                {/* Left Panel: Stats & Upgrades */}
+                <div className="w-full md:w-1/4 flex flex-col gap-4">
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-lg shrink-0">
+                    <h1 className="text-xl font-bold text-green-400 flex items-center gap-2 mb-4">
+                        <Database className="w-6 h-6 mr-1" /> AI 创世代 Inc.
+                    </h1>
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center bg-gray-800 p-2 rounded">
+                        <span className="flex items-center gap-2 text-sm"><DollarSign className="w-4 h-4 text-green-500 mr-1"/> 资金</span>
+                        <span className="font-mono font-bold text-green-400">${money.toFixed(2)}</span>
+                        </div>
+                        <div className={`flex justify-between items-center bg-gray-800 p-2 rounded ${powerOutage ? 'border border-red-500 text-red-400 animate-pulse' : ''}`}>
+                        <span className="flex items-center gap-2 text-sm"><Zap className={`w-4 h-4 mr-1 ${powerOutage ? 'text-red-500' : 'text-yellow-500'}`}/> 电费欠款</span>
+                        <span className="font-mono font-bold">${elecBill.toFixed(2)} / 500</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-gray-800 p-2 rounded">
+                        <span className="flex items-center gap-2 text-sm"><Cpu className="w-4 h-4 text-blue-500 mr-1"/> GPU 算力</span>
+                        <span className="font-mono font-bold text-blue-400">{gpus} 张</span>
+                        </div>
+                    </div>
+                    <button onClick={payBill} className="w-full mt-3 bg-gray-800 hover:bg-gray-700 text-yellow-400 border border-yellow-700 py-2 rounded-lg text-sm font-semibold transition flex justify-center items-center gap-2">
+                        <Power className="w-4 h-4 mr-1" /> 缴纳电费
+                    </button>
+                    </div>
+
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-lg flex-1">
+                    <h2 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">
+                        <Activity className="w-5 h-5 mr-1" /> 核心控制室
+                    </h2>
+                    <div className="mb-6">
+                        <div className="flex justify-between text-sm mb-1">
+                        <span>AI 智力等级</span>
+                        <span className="text-purple-400 font-bold">Lv {aiLevel}</span>
+                        </div>
+                        <ProgressBar current={aiExp} max={aiLevel * 100} color="bg-purple-500" />
+                    </div>
+                    <button onClick={toggleTraining} disabled={powerOutage} className={`w-full py-3 rounded-lg font-bold mb-4 transition border shadow-md ${isTraining ? 'bg-purple-900/50 border-purple-500 text-purple-300 animate-pulse' : 'bg-gray-800 border-gray-700 hover:bg-gray-700 text-gray-300'} disabled:opacity-50`}>
+                        {isTraining ? '🔥 训练中 (耗电)' : '▶ 启动自主训练'}
+                    </button>
+                    <button onClick={buyGpu} className="w-full py-2 bg-blue-900/30 border border-blue-800 hover:bg-blue-800/50 text-blue-300 rounded-lg text-sm font-semibold transition flex justify-between px-4 items-center">
+                        <span>购买新 GPU</span>
+                        <span className="bg-blue-900 px-2 py-1 rounded text-xs">-${gpuCost}</span>
+                    </button>
+                    </div>
+
+                    <div className="bg-black border border-gray-800 rounded-xl p-3 shadow-lg h-40 flex flex-col font-mono text-xs overflow-hidden">
+                    <div className="flex-1 overflow-y-auto space-y-1 flex flex-col-reverse">
+                        {[...logs].reverse().map((log, idx) => (
+                        <div key={idx} className={log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : log.type === 'warning' ? 'text-yellow-400' : 'text-gray-400'}>
+                            {log.msg}
+                        </div>
+                        ))}
+                    </div>
+                    </div>
+                </div>
+
+                {/* Main Panel: Map & Tools */}
+                <div className="w-full md:w-3/4 flex flex-col bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-lg h-[80vh] md:h-auto relative">
+                    
+                    {/* TABS */}
+                    <div className="flex border-b border-gray-800 shrink-0 bg-gray-950">
+                    <button onClick={() => setActiveTab('network')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition ${activeTab === 'network' ? 'bg-gray-800 text-green-400 border-t-2 border-green-500' : 'text-gray-500 hover:text-green-300'}`}>
+                        <Globe className="w-4 h-4 mr-1" /> 深网拓扑地图
+                    </button>
+                    <button onClick={() => setActiveTab('chat')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition ${activeTab === 'chat' ? 'bg-gray-800 text-white border-t-2 border-gray-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                        <MessageSquare className="w-4 h-4 mr-1" /> AI 终端
+                    </button>
+                    <button onClick={() => { if (aiLevel >= 4) setActiveTab('image'); else addLog("Lv.4解锁", "warning"); }} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition ${aiLevel < 4 ? 'bg-gray-900 text-gray-600 cursor-not-allowed' : activeTab === 'image' ? 'bg-gray-800 text-pink-400 border-t-2 border-pink-500' : 'text-gray-500 hover:text-pink-300'}`}>
+                        {aiLevel < 4 ? <Lock className="w-4 h-4 mr-1" /> : <ImageIcon className="w-4 h-4 mr-1" />} Nano Banana
+                    </button>
+                    </div>
+
+                    {powerOutage && (
+                        <div className="absolute inset-0 top-12 bg-red-950/90 z-40 flex flex-col items-center justify-center backdrop-blur-sm">
+                        <Skull className="w-16 h-16 text-red-500 mb-4 animate-bounce" />
+                        <h2 className="text-2xl font-bold text-red-500">停电罢工中</h2>
+                        <p className="text-red-300 mt-2">请在左侧结清电费账单！</p>
+                        </div>
+                    )}
+
+                    {/* TAB 1: NETWORK MAP */}
+                    {activeTab === 'network' && (
+                    <div className="flex-1 relative bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-800 via-gray-900 to-black overflow-hidden">
+                        <div className="absolute inset-0 opacity-50" style={{backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAwIDQwIEwgMCAwIDQwIDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjA1KSIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')"}}></div>
+                        
+                        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                            <line x1="20%" y1="30%" x2="50%" y2="20%" stroke="rgba(34,197,94,0.3)" strokeWidth="2" strokeDasharray="5,5" />
+                            <line x1="50%" y1="20%" x2="80%" y2="40%" stroke="rgba(34,197,94,0.3)" strokeWidth="2" strokeDasharray="5,5" />
+                            <line x1="80%" y1="40%" x2="70%" y2="80%" stroke="rgba(234,179,8,0.3)" strokeWidth="2" strokeDasharray="5,5" />
+                            <line x1="20%" y1="30%" x2="30%" y2="70%" stroke="rgba(34,197,94,0.3)" strokeWidth="2" strokeDasharray="5,5" />
+                            <line x1="30%" y1="70%" x2="70%" y2="80%" stroke="rgba(239,68,68,0.3)" strokeWidth="2" strokeDasharray="5,5" />
+                        </svg>
+
+                        {nodes.map(node => (
+                        <div 
+                            key={node.id}
+                            onClick={() => startHack(node)}
+                            className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group flex flex-col items-center transition-transform hover:scale-110 z-10 ${hackCooldowns[node.id] ? 'opacity-50 grayscale' : ''}`}
+                            style={{ left: `${node.x}%`, top: `${node.y}%` }}
+                        >
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-[0_0_15px_rgba(0,0,0,0.5)] ${
+                                aiLevel < node.reqLvl ? 'bg-gray-800 border-gray-600 text-gray-500' :
+                                node.defense === 'both' ? 'bg-red-900/80 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)]' :
+                                node.defense === 'proxy' ? 'bg-yellow-900/80 border-yellow-500 text-yellow-400' :
+                                node.defense === 'firewall' ? 'bg-orange-900/80 border-orange-500 text-orange-400' :
+                                'bg-green-900/80 border-green-500 text-green-400'
+                            }`}>
+                            {aiLevel < node.reqLvl ? <Lock className="w-5 h-5"/> : hackCooldowns[node.id] ? <AlertTriangle className="w-5 h-5" /> : <Globe className="w-6 h-6"/>}
+                            </div>
+                            <div className="mt-2 bg-black/80 px-2 py-1 rounded text-xs border border-gray-700 whitespace-nowrap text-center">
+                            <div className={`font-bold ${aiLevel < node.reqLvl ? 'text-gray-500' : 'text-white'}`}>{node.name}</div>
+                            {aiLevel < node.reqLvl ? (
+                                <span className="text-red-500">需 Lv.{node.reqLvl}</span>
+                            ) : hackCooldowns[node.id] ? (
+                                <span className="text-yellow-500">警戒中...</span>
+                            ) : (
+                                <span className="text-green-400">可以入侵</span>
+                            )}
+                            </div>
+                        </div>
+                        ))}
+
+                        {showTutorial && (
+                            <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                                <div className="bg-gray-900 border border-blue-500 max-w-md p-6 rounded-xl shadow-2xl relative">
+                                    <button onClick={() => setShowTutorial(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X className="w-5 h-5"/></button>
+                                    <h2 className="text-xl font-bold text-blue-400 mb-4 flex items-center gap-2"><BookOpen className="w-6 h-6 mr-1"/> 黑客大亨 离线单文件版</h2>
+                                    <ul className="space-y-3 text-sm text-gray-300 mb-6">
+                                        <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 shrink-0 mt-0.5 mr-1"/> <b>直接运行：</b> 双击你保存的 HTML 文件就可以随时随地打开游戏！</li>
+                                        <li className="flex items-start gap-2"><Route className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5 mr-1"/> <b>DDoS破代理：</b> 遇到代理，选择 `synflood` 模块，发起洪水攻击使其瘫痪！</li>
+                                        <li className="flex items-start gap-2"><Shield className="w-4 h-4 text-orange-500 shrink-0 mt-0.5 mr-1"/> <b>爆破过防火墙：</b> 遇到防火墙，选择 `brute_force` 模块，暴力破解密码！</li>
+                                        <li className="flex items-start gap-2"><DollarSign className="w-4 h-4 text-green-400 shrink-0 mt-0.5 mr-1"/> <b>直捣黄龙：</b> 防线清空后，换上 `neural_override` 疯狂偷钱！小心反追踪！</li>
+                                    </ul>
+                                    <button onClick={() => setShowTutorial(false)} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-bold text-lg">我准备好了！</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    )}
+
+                    {/* TAB 2: CHAT */}
+                    {activeTab === 'chat' && (
+                    <div className="flex flex-col flex-1 h-full relative overflow-hidden bg-gray-950">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {chatHistory.map((msg, idx) => (
+                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] rounded-xl p-3 text-sm ${msg.role === 'user' ? 'bg-green-700 text-white rounded-br-none' : 'bg-gray-800 text-gray-300 rounded-bl-none border border-gray-700'}`}>
+                            {msg.role === 'model' && <div className="text-xs font-bold text-blue-400 mb-1">
+                                {aiLevel < 3 ? 'AI (初级)' : aiLevel < 5 ? 'AI (普通)' : 'AI (完全体)'}
+                            </div>}
+                            <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
+                            </div>
+                        </div>
+                        ))}
+                        {isTyping && (
+                        <div className="flex justify-start">
+                            <div className="bg-gray-800 border border-gray-700 rounded-xl rounded-bl-none p-3 text-sm text-gray-500 flex gap-1 items-center">
+                            <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></span>
+                            <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                            <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></span>
+                            </div>
+                        </div>
+                        )}
+                        <div ref={chatEndRef} />
+                    </div>
+
+                    <form onSubmit={handleChatSubmit} className="p-3 bg-gray-900 border-t border-gray-800 shrink-0">
+                        <div className="relative flex gap-2">
+                        <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="给 AI 发消息..." className="flex-1 bg-gray-800 text-white rounded-lg pl-4 pr-3 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-green-500 border border-gray-700" disabled={isTyping} />
+                        <button type="submit" disabled={isTyping || !chatInput.trim()} className="bg-green-600 hover:bg-green-500 disabled:bg-gray-700 text-white px-4 rounded-lg font-bold">发送</button>
+                        </div>
+                    </form>
+                    </div>
+                    )}
+
+                    {/* TAB 3: IMAGE */}
+                    {activeTab === 'image' && (
+                    <div className="flex flex-col flex-1 h-full p-4 relative overflow-hidden bg-gray-950">
+                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-700 rounded-xl mb-4 bg-gray-800/50 overflow-hidden relative">
+                        {isGeneratingImg ? (
+                            <div className="flex flex-col items-center text-pink-400 animate-pulse">
+                            <ImageIcon className="w-12 h-12 mb-2" />
+                            <span>引擎渲染中...</span>
+                            </div>
+                        ) : generatedImage ? (
+                        <img src={generatedImage} alt="Generated" className="object-contain w-full h-full" />
+                        ) : (
+                        <div className="text-gray-500 flex flex-col items-center text-center p-4">
+                            <ImageIcon className="w-12 h-12 mb-2 opacity-50 text-pink-500" />
+                            <p className="text-sm">高级图像引擎就绪。<br/>输入提示词生成图像。</p>
+                        </div>
+                        )}
+                    </div>
+
+                    <form onSubmit={handleImageGenerate} className="flex gap-2 shrink-0">
+                        <input type="text" value={imagePrompt} onChange={e => setImagePrompt(e.target.value)} placeholder="输入画面描述..." className="flex-1 bg-gray-800 text-white text-sm rounded-lg px-3 py-3 focus:outline-none focus:ring-1 focus:ring-pink-500 border border-gray-700" disabled={isGeneratingImg} />
+                        <button type="submit" disabled={isGeneratingImg || !imagePrompt.trim()} className="bg-pink-600 hover:bg-pink-500 disabled:bg-gray-700 text-white px-4 rounded-lg font-bold">生成</button>
+                    </form>
+                    </div>
+                    )}
+                </div>
+                </div>
+            );
+        }
+
+        // 渲染 React 应用
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
